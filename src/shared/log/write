@@ -1,0 +1,58 @@
+#pragma once
+
+#include "logenum.hpp"
+#include <cassert>
+#include <cstring>
+#include <source_location>
+#include <sstream>
+
+namespace cvk{
+class write{
+    std::ostringstream resultMsg;
+    std::ostringstream context;
+    const log::to& target;
+    inline static uint totalOrder = 0;
+    log::lvl lvl = log::lvl::norm;
+public:
+    explicit write(const log::to& target,
+        const std::source_location loc = std::source_location::current()
+    );
+    write& operator<<(const log::lvl lvl){
+        this->lvl = lvl;
+        return *this;
+    }
+    inline write& operator<<(const bool bool_){
+        resultMsg << (bool_?"true":"false");
+        return *this;
+    }
+    inline write& operator<<(const std::string_view str){
+        resultMsg << str;
+        return *this;
+    }
+    inline write& operator<<(const std::string& str){
+        resultMsg << str;
+        return *this;
+    }
+    inline write& operator<<(const char* str){
+                                          // max c string size is 1024
+        assert(std::strlen(str) < 1<<10); // assumed for long strings u use std::string
+                                          // generally just unreliable check on null-terminated string
+        resultMsg << str;
+        return *this;
+    }
+    template <std::integral int_>
+    inline write& operator<<(const int_ int__){
+        resultMsg << int__;
+        return *this;
+    }
+    inline write& operator<<(const double fl){
+        resultMsg << fl;
+        return *this;
+    }
+    inline write& operator<<(const char chr){
+        resultMsg << chr;
+        return *this;
+    }
+    ~write();
+};
+}//namespace cvk

@@ -1,0 +1,11 @@
+target_include_directories(vpverk_server PUBLIC ${CMAKE_SOURCE_DIR}/src/server)
+target_include_directories(vpverk_client PUBLIC ${CMAKE_SOURCE_DIR}/src/client)
+
+target_compile_definitions(vpverk_server PUBLIC __cvk_config=<server_method_config.hpp>)
+target_compile_definitions(vpverk_client PUBLIC __cvk_config=<client_method_config.hpp>)
+
+target_compile_definitions(vpverk_server PUBLIC CONFIG_SERVER_OR_CLIENT_LOG=server)
+target_compile_definitions(vpverk_client PUBLIC CONFIG_SERVER_OR_CLIENT_LOG=client)
+
+target_compile_definitions(vpverk_server PUBLIC IT_IS_SERVER)
+target_compile_definitions(vpverk_client PUBLIC IT_IS_CLIENT)
