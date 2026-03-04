@@ -3,9 +3,9 @@
 #include <cstdint>
 enum ContextTargets : int16_t{ // ! in order of moveToContext
     InvalidContext = -1,
-    Main,
-    Settings,
-    Statistics
+    MainCtx,
+    SettingsCtx,
+    StatisticsCtx
 };
 #define NUM_OF_CONTEXTS 3
 #define ContStore ContextsStore<3>

@@ -10,5 +10,5 @@ set(SERVER_SOURCES
 )
 
 set(CLIENT_SOURCES
-
+    src/client/main.cpp
 )

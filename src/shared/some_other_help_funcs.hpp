@@ -37,12 +37,14 @@ namespace cvk{
             }
         }
     }//nms details::external
+#else
+namespace cvk{
 #endif //_WIN32
 
 
 
 
-    std::filesystem::path get_current_exec_path(){
+    inline std::filesystem::path get_current_exec_path(){
 #ifdef _WIN32
         // Source - https://stackoverflow.com/a/54491532
         // i literally have no idea what happening here, not want to read this, fck windows

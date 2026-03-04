@@ -1,16 +1,12 @@
 #pragma once
 
 #include <cvk.hpp>
+#include <filesystem>
+#include <list>
+#include <types/settingssnapshot.hpp>
 
 class Settings : public cvk::Receiver{
 public:
-    class SettingsSnapshot{
-        std::atomic<uint> counter = 1;
-
-        std::vector<std::string> binarySorted_allowedLogins;
-        std::optional<RSAKey> private_key;
-        uint16_t port;
-    };
             
 public:
     cvk::expected_contextsReg onAsyncStart(std::vector<std::function<void(std::stop_token)>>&& previousFuncs);

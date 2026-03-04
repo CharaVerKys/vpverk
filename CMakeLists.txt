@@ -10,6 +10,7 @@ include_directories(
 include_directories(
             ${CMAKE_SOURCE_DIR}/src/shared
             ${CMAKE_SOURCE_DIR}/method-invoke
+            ${CMAKE_SOURCE_DIR}/json/include
 )
 
 include(cmake/src.cmake)

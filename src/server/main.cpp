@@ -62,20 +62,21 @@
 #include <contexts/settings.hpp>
 #include <contexts/statistics.hpp>
 
+#include <some_other_help_funcs.hpp>
 #include <defines.h>
 
 int main(int argc, char** argv){
-    checkThread(&mainThreadId);
+    checkThread(&mainThreadID);
 
     std::string logdir = "none";
     auto cli = lyra::cli()
-        | lyra::opt(logdir)
+        | lyra::opt(logdir, "logdir")
         ["--logdir"]
         ("specify different log directory (default behavior log next to executable)");
     auto result = cli.parse({argc,argv});
 
     if(logdir == "none"){
-        logdir = cvk::getExePath().parent_path();
+        logdir = cvk::get_current_exec_path().parent_path();
     }
 
     std::filesystem::create_directories(logdir);

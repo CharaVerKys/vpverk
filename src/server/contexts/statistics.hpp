@@ -13,6 +13,6 @@ private:
     void asyncStart(std::stop_token);
     //
     // void (CommunicationStats)
-    void get_settings(std::any void_CommunicationStats);
+    void write_session_stats(std::any void_CommunicationStats);
 };
 
