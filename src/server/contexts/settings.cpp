@@ -1,5 +1,7 @@
 #include "settings.hpp"
 #include <defines.h>
+#include "threadchecking.hpp"
+#include <other_coroutinethings.hpp>
 
 #include <fstream>
 #include <nlohmann/json.hpp>
@@ -16,6 +18,11 @@ cvk::expected_contextsReg Settings::onAsyncStart(std::vector<std::function<void(
 
 void Settings::asyncStart(std::stop_token token){
     stop_token = token;
+
+    checkThread(&settingsThreadID);
+    t_ctx = &this->loop_;
+
+    write_serv() << "started settings";
 }
 
 void Settings::read(std::filesystem::path const& path){

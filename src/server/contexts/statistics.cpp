@@ -1,5 +1,8 @@
 #include "statistics.hpp"
 #include <types/communicationstats.hpp>
+#include "defines.h"
+#include "threadchecking.hpp"
+#include <other_coroutinethings.hpp>
 
 cvk::expected_contextsReg Statistics::onAsyncStart(std::vector<std::function<void(std::stop_token)>>&& previousFuncs){
     regMethod(this,&Statistics::write_session_stats);
@@ -12,6 +15,10 @@ cvk::expected_contextsReg Statistics::onAsyncStart(std::vector<std::function<voi
 
 void Statistics::asyncStart(std::stop_token token){
     stop_token = token;
+
+    checkThread(&statsThreadID);
+    t_ctx = &this->loop_;
+    write_serv() << "started statistics";
 }
 
 // promise<SettingsSnapshot> (void)

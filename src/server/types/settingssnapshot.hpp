@@ -44,10 +44,10 @@ class SettingsSnapshot{
         return *this;
     }
   public: 
-    std::vector<std::string> const& getBinarySorted_allowedLogins(){return *binarySorted_allowedLogins;}
+    std::vector<std::string> const& getBinarySorted_allowedLogins()const{return *binarySorted_allowedLogins;}
     //todo now copy, with c++26 make reference, or wrapper_ref if need earlier
-    std::optional<RSAKey> getRSAPrivateKey(){return private_key ? std::optional<RSAKey>{*private_key} : std::nullopt;}
-    uint16_t getPort(){return port;}
+    std::optional<RSAKey> getRSAPrivateKey()const{return private_key ? std::optional<RSAKey>{*private_key} : std::nullopt;}
+    uint16_t getPort()const{return port;}
 
   private:
     std::shared_ptr<std::vector<std::string>> binarySorted_allowedLogins = std::make_shared<std::vector<std::string>>();

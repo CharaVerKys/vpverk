@@ -1,5 +1,6 @@
 set(SHARED_SOURCES
     src/shared/log/write.cpp
+    src/shared/cussert.cpp
 )
 
 set(SERVER_SOURCES
