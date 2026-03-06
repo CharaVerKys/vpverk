@@ -3,13 +3,10 @@
 #include <cvk.hpp>
 #include <asio.hpp>
 #include <coroutinesthings.hpp>
-// #include <connection.hpp> // not implemented yet
-struct Connection{
-    //just to compile
-    std::chrono::seconds alive_time(){return {};}
-    std::optional<bool> is_active(){return true;}
-    void close(std::string_view /*reason*/){}
-};
+#include <types/settingssnapshot.hpp>
+#include <connection.hpp>
+#include <cvkaes.hpp>
+
 
 class SessionsControl : public cvk::Receiver{
 
@@ -24,12 +21,15 @@ private:
     // promise<bool> (void) // just invoked promise on this thread
     void move_to_main_context(std::any promise_bool_void);
 
-
     cvk::coroutine_t acceptConnection();
 
     // preemptive with reschedule on self after several ops
     cvk::coroutine_t closeOldSessions();
 
+    cvk::coroutine_t startConnection(); //detached from accept connection, perform current socket lifetime logic
+    cvk::future<aig::AesSession> exchangeAESkey(SettingsSnapshot const& settings/*maybe only private key*/); // exchange via RSA
+    cvk::future<bool/*allowed*/> authentificateUser(SettingsSnapshot const& settings/*maybe only logins*/); // verify user in allowed list
+    cvk::future<bool/*normal disconnect == true*/> performDataExchange(); // just vpn logic, when coroutine return connection ended, no other logic
 private:
     std::stop_token stop_token;
 

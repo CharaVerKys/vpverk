@@ -1,7 +1,9 @@
 #pragma once
 
-#include <optional>
 struct RSAKey{};
+
+#include <chrono>
+#include <optional>
 #include <vector>
 #include <atomic>
 #include <string>
@@ -48,9 +50,11 @@ class SettingsSnapshot{
     //todo now copy, with c++26 make reference, or wrapper_ref if need earlier
     std::optional<RSAKey> getRSAPrivateKey()const{return private_key ? std::optional<RSAKey>{*private_key} : std::nullopt;}
     uint16_t getPort()const{return port;}
+    std::chrono::seconds getMaxAliveTime()const{return max_alive_time;}
 
   private:
     std::shared_ptr<std::vector<std::string>> binarySorted_allowedLogins = std::make_shared<std::vector<std::string>>();
     std::shared_ptr<RSAKey> private_key = nullptr;
     uint16_t port;
+    std::chrono::seconds max_alive_time;
 };

@@ -111,7 +111,7 @@ int main(int argc, char** argv){
             throw std::runtime_error("failed to start contexts");
         })
     // * using coroutine traits to complite with async work
-    .and_then_async(call_(sessionsControl,acceptConnection))
+    .and_then_async(call_(sessionsControl,startAcceptingConnections))
     //.value().subscribe([](tl::expected<Unit,std::exception_ptr>&&exc){
         //std::cout << "call async in context 2 after subscribe on future from chained expected startup" <<std::endl;
     //}

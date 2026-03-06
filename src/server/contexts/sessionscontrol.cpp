@@ -1,30 +1,12 @@
 #include "sessionscontrol.hpp"
+#include "coroutinesthings.hpp"
 #include "defines.h"
 #include "server_method_config.hpp"
 #include "threadchecking.hpp"
 #include "types/settingssnapshot.hpp"
-#include <asio/use_awaitable.hpp>
+#include <coroutine>
 #include <other_coroutinethings.hpp>
 
-
-namespace {
-
-// awaitable: suspend until asio::steady_timer fires
-struct await_timer {
-    asio::steady_timer& timer;
-    asio::error_code    ec_{};
-
-    bool await_ready() const noexcept { return false; }
-    void await_suspend(std::coroutine_handle<> h) {
-        timer.async_wait([this, h](asio::error_code ec) {
-            ec_ = ec;
-            h.resume();
-        });
-    }
-    asio::error_code await_resume() noexcept { return ec_; }
-};
-
-} // namespace
 
 cvk::expected_contextsReg SessionsControl::onAsyncStart(std::vector<std::function<void(std::stop_token)>>&& previousFuncs){
     regMethod(this,&SessionsControl::move_to_main_context);
@@ -58,7 +40,29 @@ cvk::coroutine_t SessionsControl::acceptConnection(){
         }
 
         while(not stop_token.stop_requested()){
-            auto socket = co_await acceptor_->async_accept(asio::use_awaitable);
+            // not want to create awaiter for this
+            auto handle = co_await cvk::co_getHandle{};
+            //asio::ip::tcp::socket socket{t_ctx};
+            // using api, i made it so why not
+            std::error_code ec;
+            asio::ip::tcp::socket socket{*cvk::ContStore::instance()->get_io_context(MainCtx)};
+            acceptor_->async_accept(socket, [handle, &ec](std::error_code const& error){
+                    ec = error;
+                    RESCHEDULE_HERE(handle); //reschedule on same thread macros
+                    }
+                  );
+            co_await std::suspend_always{};
+
+            if(ec){
+                throw std::runtime_error(std::string("asio <error_code> ")+ec.message());
+            }
+
+            Connection connection(std::move(socket));
+
+            //detached coroutine
+            startConnection(std::move(connection));
+            
+            // done, just process next
         }
         
     } catch (std::exception const& e) {
@@ -66,6 +70,62 @@ cvk::coroutine_t SessionsControl::acceptConnection(){
         acceptor_ = nullptr;
         acceptConnection();
     }
+}
+
+cvk::coroutine_t SessionsControl::closeOldSessions()
+{
+    size_t processed = 0;
+    size_t i = 0;
+
+    const SettingsSnapshot settings = co_await cvk::method::Invoke<SettingsSnapshot>{
+        // ? from context to context
+        // ? first is where coroutine will resume, second where func will calls
+        MainCtx, SettingsCtx,
+        method::get_settings
+    };
+    const std::chrono::seconds max_alive_time = settings.getMaxAliveTime();
+
+    while (i < connections_.size()) {
+        auto const& conn = connections_[i];
+        const auto opt = conn->is_active(); 
+        if (not opt) {
+            ++i;
+            continue;
+        }
+
+        if(not *opt){
+            conn->close("not active (should be no-op)");
+            connections_[i] = std::move(connections_.back());
+            connections_.pop_back();
+        }
+
+        if (conn->alive_time() >= max_alive_time) {
+            conn->close("session expired");
+            connections_[i] = std::move(connections_.back());
+            connections_.pop_back();
+        } else {
+            ++i;
+        }
+
+        if (++processed % 10 == 0) {
+            co_await reschedule{};
+            if (i > connections_.size())
+                i = connections_.size();
+        }
+    }
+}
+
+cvk::coroutine_t SessionsControl::startConnection() //detached from accept connection, perform current socket lifetime logic
+{
+}
+cvk::future<aig::AesSession> SessionsControl::exchangeAESkey(SettingsSnapshot const& settings/*maybe only private key*/) // exchange via RSA
+{
+}
+cvk::future<bool/*allowed*/> SessionsControl::authentificateUser(SettingsSnapshot const& settings/*maybe only logins*/) // verify user in allowed list
+{
+}
+cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExchange() // just vpn logic, when coroutine return connection ended, no other logic
+{
 }
 
 void SessionsControl::asyncStart(std::stop_token token){
@@ -78,8 +138,20 @@ void SessionsControl::asyncStart(std::stop_token token){
     // and init context for them all to use coroutines!
 
 
-    // chatbot: start timer here, it should only fire every hour and create coroutine
     cleanup_timer_ = std::make_unique<asio::steady_timer>(loop_);
+
+    // ready for macros code, if i will ever want
+    static std::optional<std::function<void()>> lambda_self_ = std::nullopt;
+    auto cleanup_timer_call = [this](){
+        cleanup_timer_->expires_after(std::chrono::seconds(10));
+        cleanup_timer_->async_wait([this](std::error_code ec) {
+            if (ec == std::errc::operation_canceled) return; // timer cancelled = server shutting down
+            (void)this;
+            closeOldSessions();
+            (*lambda_self_)();
+        });
+    };
+    if(not lambda_self_){lambda_self_ = cleanup_timer_call;}
 
     write_serv() << "started sessions control";
 }

@@ -1,6 +1,7 @@
 #include "write"
 #include "logger.hpp"
 
+
 cvk::write::write(const log::to& target,
     const std::source_location loc)
     : target(target){

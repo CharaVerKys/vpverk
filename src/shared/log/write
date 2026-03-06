@@ -3,8 +3,12 @@
 #include "logenum.hpp"
 #include <cassert>
 #include <cstring>
-#include <source_location>
 #include <sstream>
+
+#include <experimental/source_location>
+namespace std{
+using source_location = std::experimental::source_location;
+}
 
 namespace cvk{
 class write{

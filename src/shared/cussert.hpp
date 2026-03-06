@@ -1,5 +1,10 @@
 #pragma once // may be included not from defines.h
-#include <source_location>
+//#include <source_location>
+
+#include <experimental/source_location>
+namespace std{
+using source_location = std::experimental::source_location;
+}
 
 [[noreturn]] void cuabort(const char* info = nullptr);
 [[noreturn]] void cuabort_loc(const char* info = nullptr, std::source_location const& loc = std::source_location::current());
