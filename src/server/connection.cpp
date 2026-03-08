@@ -2,6 +2,7 @@
 #include "other_coroutinethings.hpp"
 #include <asioapi.hpp>
 #include <atomic>
+#include <limits>
 
 void Connection::read_wait_awaiter::await_suspend(std::coroutine_handle<> h)noexcept{
     s_.async_wait(asio::ip::tcp::socket::wait_read,[h, this](std::error_code const&e){
@@ -72,10 +73,12 @@ cvk::future<Unit> Connection::close(std::string_view reason){
     }
     std::vector<uint8_t> buff;
     const char* _Error = "_Error: ";
-    buff.resize(reason.size()+1 +std::strlen(_Error));
-    std::memcpy(buff.data(),_Error,std::strlen(_Error)); //flat text
-    std::memcpy(buff.data()+std::strlen(_Error),reason.data(),reason.size()); //flat text
-    buff[reason.size()+std::strlen(_Error)] = 0;
+    buff.resize(reason.size()+1 +std::strlen(_Error)+4);
+    uint32_t instead_of_size = std::numeric_limits<uint32_t>::max();
+    std::memcpy(buff.data(),&instead_of_size,4); // now i can differ error and actual packet
+    std::memcpy(buff.data()+4,_Error,std::strlen(_Error)); //flat text
+    std::memcpy(buff.data()+4+std::strlen(_Error),reason.data(),reason.size()); //flat text
+    buff[reason.size()+std::strlen(_Error)+4] = 0;
     auto res = co_await send(buff); //reliable send everything
     if(not res){
         //idk just skip

@@ -564,9 +564,33 @@ cvk::future<bool/*allowed*/> SessionsControl::authenticateUser(Connection& con, 
             );
 }
 
+// kill meeeee by this shit code idk why i keep writing it instead of recreating everything entirely
+// by its roots, with acknowledge of asio absolute inability to thread and only one file descriptor - tun, not several as i planed initially
+// i really made such bad code now
+
 cvk::future<Unit> SessionsControl::sendIp(Connection& con, aig::AesSession& aeskey, uint32_t ip)
 {
     std::array<uint8_t,8> buffer;
+    //uint32_t u4 = 4;
+    buffer[0] = 4;
+    buffer[1] = buffer[2] = buffer[3] = 0; // nah mem copy, i can reconstruct by bytes itself
+
+    // but not ip lol
+    std::memcpy(buffer.data()+4,&ip,4);
+
+    std::array<uint8_t,8> buffer_2;
+    auto ec = aeskey.encrypt(buffer, buffer_2);
+    if(ec){
+        co_await con.close("Encryption failure");
+        throw std::runtime_error("first encrypt fail: " + ec.message());
+    }
+    // no lock cuz still in init process
+    auto expected = co_await con.send(buffer_2);
+    if(not expected){
+        co_await con.close("Send failure ыыыыыыыыыыыыы");
+        throw std::runtime_error("first send fail: " + expected.error().message());
+    }
+    co_return {};
 }
 
 cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExchange(Connection& con, aig::AesSession& aeskey) // just vpn logic, when coroutine return connection ended, no other logic
