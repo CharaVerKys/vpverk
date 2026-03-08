@@ -4,6 +4,7 @@
 #include "hpp/future.h"
 #include <asio/posix/stream_descriptor.hpp>
 #include <asio/steady_timer.hpp>
+#include <asio/strand.hpp>
 #include <chrono>
 
 
@@ -37,6 +38,14 @@ private:
     std::atomic_bool it_is_read_lock = false;
     std::atomic_bool lock_ = false; // since AGAIN asio have no support for thread safety even when it is literally posix file descriptor
                                     // and that additionally create issues with read process
+
+    // guys i completely lost :sob:
+    // seems like cancel() is also unsafe to call from different thread
+    // why :sob:
+    // nothing is safe in asio :sob:
+    // ok, i have to add strand
+    asio::strand<asio::io_context::executor_type> strand;
+
     asio::posix::stream_descriptor tun;
     asio::steady_timer cancel_timer;
 };

@@ -1,3 +1,5 @@
+#include <asio/use_awaitable.hpp>
+#include <coroutine>
 #include <limits>
 #include <tun.hpp>
 
@@ -23,8 +25,9 @@ Tun::Tun()
     cussert(t_ctx.has_value());
     return fd;
 }()}
+,strand{asio::make_strand(**t_ctx)}
 //posix stream
-,tun{[](int fd)->asio::posix::stream_descriptor{
+,tun{[](int fd, auto& strand)->asio::posix::stream_descriptor{
     struct ifreq ifr{};
     ifr.ifr_flags = IFF_TUN | IFF_NO_PI; // no packet info header, raw IP
     const char* name = "tun0";
@@ -38,10 +41,10 @@ Tun::Tun()
     // make non-blocking for asio
     fcntl(fd, F_SETFL, O_NONBLOCK); //? cant fail?
     cussert(cvk::ContStore::instance()->get_io_context(MainCtx) == *t_ctx); //if i not stupid it should be same **pointers**
-    return {**t_ctx, fd};
-}(file_descriptor)}
+    return {strand, fd};
+}(file_descriptor, strand)}
 //timer
-,cancel_timer{**t_ctx}
+,cancel_timer{strand}
 {   //constructor body
     //std::atomic_thread_fence(std::memory_order_release); //not required
 }
@@ -105,6 +108,14 @@ cvk::future<uint16_t/*size*/> Tun::read(std::span<uint8_t> buffer, std::chrono::
 cvk::future<Unit> Tun::write(std::span<const uint8_t> ip_packet){
     if(it_is_read_lock.load(std::memory_order_acquire)){
         //btw, this can fire badly between read and current threads, but at max i lose 100ms; even if it bad, idk this is already kind of bad design
+
+        // AND BECAUSE OF CANCEL BEING UNSAFE
+        auto handle = co_await cvk::co_getHandle();
+        asio::post(strand,[handle](){handle.resume();}); // AT LEAST IT IS SAFE TO CALL CANCEL NOW
+        co_await std::suspend_always{};
+        //imagine if this exist
+        //co_await asio::post(strand,asio::use_awaitable);
+       
         cancel_timer.cancel();
         tun.cancel();
         // read may be on timeout, so id better cancel it and perform send first
