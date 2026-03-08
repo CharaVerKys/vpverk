@@ -58,7 +58,9 @@ class Connection{
     [[nodiscard]] std::chrono::seconds alive_time(){return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - spawned);}
     [[nodiscard]] std::optional<bool> is_active();
     [[nodiscard]] cvk::future<Unit> close(std::string_view /*reason*/);
-    [[nodiscard]] std::optional<asio::ip::address_v4> ip();
+
+    //thread unsafe, but ip ret
+    [[nodiscard]] bool is_active_nolock();
 
     //since i added strand they are thread safe but will cause garbage data because of asio sockets unreliable send/read _some
     //so have to lock anyway

@@ -52,6 +52,12 @@ std::optional<bool> Connection::is_active(){
     if(exp){return *exp;}
     throw std::runtime_error(std::string("reliable is open unexpected error code: ") + exp.error().message());
 }
+bool Connection::is_active_nolock(){
+    auto exp = cvk_asio::reliable_is_open(sock_); //perform sync read (short 1 byte peek) operation
+    if(exp){return *exp;}
+    throw std::runtime_error(std::string("reliable is open unexpected error code: ") + exp.error().message());
+}
+
 cvk::future<Unit> Connection::close(std::string_view reason){
     //only one can fire, even if run 100 from different threads
     bool exchanged = closed.exchange(true,std::memory_order_relaxed);

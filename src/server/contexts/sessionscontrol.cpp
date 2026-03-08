@@ -5,6 +5,7 @@
 #include "server_method_config.hpp"
 #include "threadchecking.hpp"
 #include "types/settingssnapshot.hpp"
+#include <stdexcept>
 #include <tun.hpp>
 #include <algorithm>
 #include <asio/ip/address.hpp>
@@ -542,6 +543,9 @@ cvk::future<bool/*allowed*/> SessionsControl::authenticateUser(Connection& con, 
         throw std::runtime_error("first decrypt fail: " + ec.message());
     }
     }///
+    if(read_raw > 200){
+        throw std::runtime_error("they on trees jonny");
+    }
 
     std::vector<uint8_t> login_raw;
     {///
@@ -619,7 +623,7 @@ cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExcha
                 co_await resched{};
                 lock = con.read_lock();
             }
-            if(con.available() == 0){
+            if(con.available() == 0 and con.is_active_nolock()){
                 continue; //some one used socket between wait read and read start
             }
 
@@ -635,6 +639,9 @@ cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExcha
                 throw std::runtime_error("first decrypt fail: " + ec.message());
             }
             }///
+            if(read_raw > max_bounds_size){
+                throw std::runtime_error("they on trees jonny");
+            }
 
             {///
             (co_await con.read_some_reliable(buffer_crypt,read_raw))
@@ -694,6 +701,7 @@ void SessionsControl::asyncStart(std::stop_token token){
         });
     };
     if(not lambda_self_){lambda_self_ = cleanup_timer_call;}
+    cleanup_timer_call();
 
     routeTunToClients(true).subscribe([](tl::expected<Unit,std::exception_ptr>&&exp){
                 if(not exp){

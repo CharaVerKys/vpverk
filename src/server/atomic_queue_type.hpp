@@ -2,9 +2,7 @@
 #include "connection.hpp"
 #include <cvkaes.hpp>
 #include <asio/ip/address_v4.hpp>
-//#include <atomic_queue/atomic_queue.h>
-#include <../../atomic_queue/include/atomic_queue/atomic_queue.h>
-static_assert(false,"remove when compile for clangd");
+#include <atomic_queue/atomic_queue.h>
 
 struct aq_route{
     bool add_or_remove = false;
