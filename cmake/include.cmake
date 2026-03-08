@@ -1,5 +1,6 @@
 target_include_directories(vpverk_server PUBLIC
             ${CMAKE_SOURCE_DIR}/src/server
+            ${CMAKE_SOURCE_DIR}/atomic_queue/include
 )
 target_include_directories(vpverk_client PUBLIC
             ${CMAKE_SOURCE_DIR}/src/client

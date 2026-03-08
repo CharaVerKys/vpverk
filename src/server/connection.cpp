@@ -1,0 +1,118 @@
+#include "connection.hpp"
+#include "other_coroutinethings.hpp"
+#include <asioapi.hpp>
+#include <atomic>
+
+void Connection::read_wait_awaiter::await_suspend(std::coroutine_handle<> h)noexcept{
+    s_.async_wait(asio::ip::tcp::socket::wait_read,[h, this](std::error_code const&e){
+        RESCHEDULE_HERE(h);
+        ec = e;
+    });
+}
+
+std::optional<std::unique_ptr<Connection::Socket_lock>> Connection::read_lock(){
+    //try lock
+    bool exchanged = read_lock_.exchange(true,std::memory_order_acquire);
+    if(exchanged == true){return std::nullopt;}
+
+    //give lock control out
+    return {std::make_unique<Socket_lock>(read_lock_)};
+}
+std::optional<std::unique_ptr<Connection::Socket_lock>> Connection::write_lock(){
+    //try lock
+    bool exchanged = write_lock_.exchange(true,std::memory_order_acquire);
+    if(exchanged == true){return std::nullopt;}
+
+    //give lock control out
+    return {std::make_unique<Socket_lock>(write_lock_)};
+}
+std::optional<std::pair<std::unique_ptr<Connection::Socket_lock>,std::unique_ptr<Connection::Socket_lock>>> Connection::context_lock(){
+    //try lock
+    bool exchanged = read_lock_.exchange(true,std::memory_order_acquire);
+    if(exchanged == true){return std::nullopt;}
+
+    exchanged = write_lock_.exchange(true,std::memory_order_relaxed);
+    if(exchanged == true){
+        read_lock_.store(false,std::memory_order_relaxed);
+        return std::nullopt;}
+
+    //give lock control out
+    return {std::make_pair(std::make_unique<Socket_lock>(read_lock_),std::make_unique<Socket_lock>(write_lock_))};
+}
+std::optional<bool> Connection::is_active(){
+    //try lock
+    bool exchanged = read_lock_.exchange(true,std::memory_order_acquire);
+    if(exchanged == true){return std::nullopt;}
+
+    auto exp = cvk_asio::reliable_is_open(sock_); //perform sync read (short 1 byte peek) operation
+
+    read_lock_.store(false, std::memory_order_release);
+
+    if(exp){return *exp;}
+    throw std::runtime_error(std::string("reliable is open unexpected error code: ") + exp.error().message());
+}
+cvk::future<Unit> Connection::close(std::string_view reason){
+    //only one can fire, even if run 100 from different threads
+    bool exchanged = closed.exchange(true,std::memory_order_relaxed);
+    if(exchanged == true){co_return{};}
+
+    //lock
+    while(true){
+        bool exchanged = write_lock_.exchange(true,std::memory_order_acquire);
+        if(exchanged == true){
+            co_await reschedule{};
+        }else{
+            break;
+        }
+    }
+    auto lifetime = Socket_lock{write_lock_};
+    auto expe_ = cvk_asio::reliable_is_open(sock_);
+    if(not expe_ or not *expe_){
+        co_return {};
+    }
+    std::vector<uint8_t> buff;
+    const char* _Error = "_Error: ";
+    buff.resize(reason.size()+1 +std::strlen(_Error));
+    std::memcpy(buff.data(),_Error,std::strlen(_Error)); //flat text
+    std::memcpy(buff.data()+std::strlen(_Error),reason.data(),reason.size()); //flat text
+    buff[reason.size()+std::strlen(_Error)] = 0;
+    auto res = co_await send(buff); //reliable send everything
+    if(not res){
+        //idk just skip
+        //sock_.close();
+        //co_return{};
+    }
+    sock_.close();
+    co_return{};
+}
+std::optional<asio::ip::address_v4> Connection::ip()
+{
+    std::error_code ec;
+    auto res = sock_.remote_endpoint(ec).address().to_v4();
+    if(ec){
+        return std::nullopt;
+    }
+    return res;
+}
+cvk::future<tl::expected<Unit,std::error_code>> Connection::send(std::span<const uint8_t> buff){
+    co_return co_await cvk_asio::send(sock_, buff);
+}
+cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> Connection::read_some(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
+    co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
+}
+cvk::future<tl::expected<Unit,std::error_code>> Connection::read_some_reliable(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
+    uint32_t was_read = 0;
+    if(amount > out_buffer.size() and amount not_eq 0) {
+        co_return tl::unexpected{std::make_error_code(std::errc::no_buffer_space)};
+    }
+    uint32_t need_read = amount == 0 ? (uint32_t)out_buffer.size() : amount;
+    while(was_read not_eq need_read){
+        auto exp = co_await read_some(out_buffer.subspan(was_read),need_read-was_read);
+        if(not exp){co_return tl::unexpected{exp.error()};} // only if there was better way...
+                                                // i start to thinking that and_then and or_else isnt such useful for inner code
+        was_read += exp.value();
+    }
+    co_return {};
+}
+
+

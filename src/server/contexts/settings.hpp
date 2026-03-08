@@ -7,8 +7,6 @@
 
 class Settings : public cvk::Receiver{
 public:
-            
-public:
     cvk::expected_contextsReg onAsyncStart(std::vector<std::function<void(std::stop_token)>>&& previousFuncs);
     void read(std::filesystem::path const& path);
                     

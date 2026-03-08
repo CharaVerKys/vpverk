@@ -28,7 +28,29 @@ void Settings::asyncStart(std::stop_token token){
 void Settings::read(std::filesystem::path const& path){
     write_serv() << "start reading settings";
     std::ifstream file(path);
-    json data = json::parse(file);
+    if (!file.is_open()){
+        throw std::runtime_error("Failed to open config file: " + path.string());
+    }
+    json js = json::parse(file);
+
+    //chatbot gen but that kind of just api
+
+    // port
+    current_snapshot.port = js.at("port").get<uint16_t>();
+
+    // max_alive_time (in seconds)
+    current_snapshot.max_alive_time = std::chrono::seconds(js.at("max_alive_time").get<int64_t>());
+
+    // private_key from file path
+    std::string keyPath = js.at("private_key_path").get<std::string>();
+    current_snapshot.private_key = std::make_shared<RSAKey>(keyPath);
+
+    // allowed_logins — parse, sort, store
+    auto logins = js.at("allowed_logins").get<std::vector<std::string>>();
+    std::sort(logins.begin(), logins.end());
+    current_snapshot.binarySorted_allowedLogins = std::make_shared<std::vector<std::string>>(std::move(logins));
+
+
 }
 
 // promise<SettingsSnapshot> (void)

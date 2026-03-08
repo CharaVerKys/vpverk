@@ -7,3 +7,6 @@
 [submodule "json"]
 	path = json
 	url = https://github.com/nlohmann/json.git
+[submodule "atomic_queue"]
+	path = atomic_queue
+	url = https://github.com/max0x7ba/atomic_queue.git

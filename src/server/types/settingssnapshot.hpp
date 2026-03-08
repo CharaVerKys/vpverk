@@ -1,7 +1,5 @@
 #pragma once
 
-struct RSAKey{};
-
 #include <chrono>
 #include <optional>
 #include <vector>
@@ -9,6 +7,8 @@ struct RSAKey{};
 #include <string>
 #include <cstdint>
 #include <memory>
+
+struct RSAKey{std::string waste;};
 
 class SettingsSnapshot{
     std::shared_ptr<std::atomic<uint>> counter = std::make_shared<std::atomic<uint>>(1);
