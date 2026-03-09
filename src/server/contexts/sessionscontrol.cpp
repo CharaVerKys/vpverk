@@ -497,8 +497,14 @@ cvk::future<aig::AesSession> SessionsControl::exchangeAESkey(Connection& con, Se
 
     std::array<uint8_t,32+16+16> aes_key_raw;
     
-    //perform rsa decrypt, will learn later
-    cuabort("no code");
+    auto res = settings.getRSAPrivateKey()->decrypt(aes_key_under_rsa,aes_key_raw);
+    if(not res){
+        throw std::runtime_error("fail rsa decrypt: " + res.error());
+    }
+    if(res.value() not_eq aes_key_raw.size()){
+        throw std::runtime_error("fail rsa decrypt - expected size not match");
+    }
+    
 
     // salt just against some one who not have source code, useless op in general
     constexpr const char* salt = "Chara_VerKys";

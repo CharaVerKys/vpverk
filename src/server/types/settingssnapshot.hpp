@@ -1,14 +1,13 @@
 #pragma once
 
 #include <chrono>
-#include <optional>
 #include <vector>
 #include <atomic>
 #include <string>
 #include <cstdint>
 #include <memory>
+#include <cvkrsa.hpp>
 
-struct RSAKey{std::string waste;};
 
 class SettingsSnapshot{
     std::shared_ptr<std::atomic<uint>> counter = std::make_shared<std::atomic<uint>>(1);
@@ -47,14 +46,13 @@ class SettingsSnapshot{
     }
   public: 
     std::vector<std::string> const& getBinarySorted_allowedLogins()const{return *binarySorted_allowedLogins;}
-    //todo now copy, with c++26 make reference, or wrapper_ref if need earlier
-    std::optional<RSAKey> getRSAPrivateKey()const{return private_key ? std::optional<RSAKey>{*private_key} : std::nullopt;}
+    std::shared_ptr<const aig::RsaKey> getRSAPrivateKey()const{return private_key;}
     uint16_t getPort()const{return port;}
     std::chrono::seconds getMaxAliveTime()const{return max_alive_time;}
 
   private:
     std::shared_ptr<std::vector<std::string>> binarySorted_allowedLogins = std::make_shared<std::vector<std::string>>();
-    std::shared_ptr<RSAKey> private_key = nullptr;
+    std::shared_ptr<aig::RsaKey> private_key = nullptr;
     uint16_t port;
     std::chrono::seconds max_alive_time;
 };

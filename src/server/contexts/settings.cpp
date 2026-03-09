@@ -1,5 +1,6 @@
 #include "settings.hpp"
 #include <defines.h>
+#include "cvkrsa.hpp"
 #include "threadchecking.hpp"
 #include <other_coroutinethings.hpp>
 
@@ -43,14 +44,20 @@ void Settings::read(std::filesystem::path const& path){
 
     // private_key from file path
     std::string keyPath = js.at("private_key_path").get<std::string>();
-    current_snapshot.private_key = std::make_shared<RSAKey>(keyPath);
+
+    auto key_ = aig::RsaKey::from_pem_file(path.c_str(), aig::RsaKeyType::Private);
+    if(not key_){
+        throw std::runtime_error("Failed to read private key: " + keyPath);
+    }
+    current_snapshot.private_key = std::make_shared<aig::RsaKey>(std::move(*key_));
 
     // allowed_logins — parse, sort, store
     auto logins = js.at("allowed_logins").get<std::vector<std::string>>();
     std::sort(logins.begin(), logins.end());
+    if(not logins.size()){
+        throw std::runtime_error("logins list appears to be empty");
+    }
     current_snapshot.binarySorted_allowedLogins = std::make_shared<std::vector<std::string>>(std::move(logins));
-
-
 }
 
 // promise<SettingsSnapshot> (void)
