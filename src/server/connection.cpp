@@ -94,15 +94,15 @@ cvk::future<Unit> Connection::close(std::string_view reason){
     sock_.close();
     co_return{};
 }
-std::optional<asio::ip::address_v4> Connection::ip()
-{
-    std::error_code ec;
-    auto res = sock_.remote_endpoint(ec).address().to_v4();
-    if(ec){
-        return std::nullopt;
-    }
-    return res;
-}
+// std::optional<asio::ip::address_v4> Connection::ip()
+// {
+//     std::error_code ec;
+//     auto res = sock_.remote_endpoint(ec).address().to_v4();
+//     if(ec){
+//         return std::nullopt;
+//     }
+//     return res;
+// }
 cvk::future<tl::expected<Unit,std::error_code>> Connection::send(std::span<const uint8_t> buff){
     co_return co_await cvk_asio::send(sock_, buff);
 }

@@ -29,7 +29,7 @@ public:
 private:
     //does not perform lock
     struct Lock{std::atomic_bool* l; Lock(Lock const&) = delete;Lock():l{nullptr}{}Lock(std::atomic_bool&a):l{&a}{}~Lock(){if(l){l->store(false,std::memory_order_release);}}
-           Lock(Lock&& o):l(o.l){o.l = nullptr;} //move constructor allowed
+           Lock(Lock&& o):l(o.l){o.l = nullptr;} /*move constructor allowed*/ Lock& operator=(Lock&&o){if(this->l == o.l){return *this;} this->l = o.l; o.l = nullptr;return *this;}
     };
     [[nodiscard]] cvk::future<Lock> lock(); //async lock and give out lifetime
 

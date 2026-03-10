@@ -74,7 +74,7 @@ namespace cvk_asio{
                                 this->expected = tl::unexpected{ec};
                                 return;
                             }
-                            this->expected = sendBytes;
+                            this->expected = (uint32_t)sendBytes;
                             // erm, literally everything done
 
                          } // callback
@@ -96,7 +96,7 @@ namespace cvk_asio{
                                 this->expected = tl::unexpected{ec};
                                 return;
                             }
-                            this->expected = readBytes;
+                            this->expected = (uint32_t)readBytes;
                             // erm, literally everything done
 
                          } // callback
