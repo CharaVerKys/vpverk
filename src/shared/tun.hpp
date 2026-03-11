@@ -1,12 +1,15 @@
 #pragma once
 
-#include "hpp/defines.h"
 #include "hpp/future.h"
 #include <asio/posix/stream_descriptor.hpp>
 #include <asio/steady_timer.hpp>
 #include <asio/strand.hpp>
 #include <chrono>
 
+#ifndef Unit_Type
+#define Unit_Type
+struct Unit{};
+#endif
 
 
 class Tun{

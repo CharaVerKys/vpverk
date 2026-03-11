@@ -5,7 +5,7 @@
 
 #include "coroutinesthings.hpp"
 #include "cussert.hpp"
-#include <cvk.hpp>
+//#include <cvk.hpp>
 
 #include <asio/write.hpp>
 
@@ -39,8 +39,13 @@ Tun::Tun()
     }
 
     // make non-blocking for asio
-    fcntl(fd, F_SETFL, O_NONBLOCK); //? cant fail?
-    cussert(cvk::ContStore::instance()->get_io_context(MainCtx) == *t_ctx); //if i not stupid it should be same **pointers**
+    if(fcntl(fd, F_SETFL, O_NONBLOCK) <0){
+        close(fd);
+        cuabort("failed to set non-blocking (tun)");
+    }
+
+    //cussert(cvk::ContStore::instance()->get_io_context(MainCtx) == *t_ctx); //if i not stupid it should be same **pointers**
+    //there no method invoke for client yet, it is shared code, uncomment later
     return {strand, fd};
 }(file_descriptor, strand)}
 //timer

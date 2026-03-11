@@ -70,6 +70,7 @@ class Connection{
     // also logic for coroutine to move out of their io_context to perform some tasks is outer logic
     // but they all should be under lock, when 'this' coroutine perform on other io_context it is similar to performing IO 
     [[nodiscard]] cvk::future<tl::expected<Unit,std::error_code>> send(std::span<const uint8_t>);
+        //inner api names reverted, changed at last moment
     [[nodiscard]] cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some(std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
     [[nodiscard]] cvk::future<tl::expected<Unit,std::error_code>> read_some_reliable(std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
     [[nodiscard]] read_wait_awaiter wait_read(){return {sock_};}

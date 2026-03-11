@@ -88,9 +88,24 @@ cvk::future<Unit> Connection::close(std::string_view reason){
     auto res = co_await send(buff); //reliable send everything
     if(not res){
         //idk just skip
-        //sock_.close();
-        //co_return{};
     }
+    //both may throw
+    sock_.shutdown(asio::ip::tcp::socket::shutdown_both);//send fin
+    //todo (unreliable source)
+    //ai says, that i cant close when there anything on read buffer
+    //keeping buffer busy is potential attack direction
+    //tho i have no any limiters now, it is anyway possible attack
+    //i cant just read, ai offered this
+    sock_.non_blocking(true); //and sync read
+          //i really not sure whenever it will work or not
+          //i mean work as guard against dos
+          //but well, at least try
+    char drain[256]; std::error_code drain_ec;
+    while(sock_.read_some(asio::buffer(drain),drain_ec)>0){}
+    //this is really seems so unreliable
+    //but anyway
+    //after drain, close send fin (or just do nothing?) and not rst
+    // (also info from ai)
     sock_.close();
     co_return{};
 }
@@ -107,21 +122,11 @@ cvk::future<tl::expected<Unit,std::error_code>> Connection::send(std::span<const
     co_return co_await cvk_asio::send(sock_, buff);
 }
 cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> Connection::read_some(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
-    co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
+    //co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
+    co_return co_await cvk_asio::read_some_unreliable(sock_, out_buffer, amount);
 }
 cvk::future<tl::expected<Unit,std::error_code>> Connection::read_some_reliable(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
-    uint32_t was_read = 0;
-    if(amount > out_buffer.size() and amount not_eq 0) {
-        co_return tl::unexpected{std::make_error_code(std::errc::no_buffer_space)};
-    }
-    uint32_t need_read = amount == 0 ? (uint32_t)out_buffer.size() : amount;
-    while(was_read not_eq need_read){
-        auto exp = co_await read_some(out_buffer.subspan(was_read),need_read-was_read);
-        if(not exp){co_return tl::unexpected{exp.error()};} // only if there was better way...
-                                                // i start to thinking that and_then and or_else isnt such useful for inner code
-        was_read += exp.value();
-    }
-    co_return {};
+    co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
 }
 
 

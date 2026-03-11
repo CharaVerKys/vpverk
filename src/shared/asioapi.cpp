@@ -39,7 +39,23 @@ namespace cvk_asio{
         }
         co_return {};
     }
-    cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
+
+    cvk::future<tl::expected<Unit,std::error_code>> read_some(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
+        uint32_t was_read = 0;
+        if(amount > out_buffer.size() and amount not_eq 0) {
+            co_return tl::unexpected{std::make_error_code(std::errc::no_buffer_space)};
+        }
+        uint32_t need_read = amount == 0 ? (uint32_t)out_buffer.size() : amount;
+        while(was_read not_eq need_read){
+            auto exp = co_await read_some_unreliable(socket,out_buffer.subspan(was_read),need_read-was_read);
+            if(not exp){co_return tl::unexpected{exp.error()};} // only if there was better way...
+                                                    // i start to thinking that and_then and or_else isnt such useful for inner code
+            was_read += exp.value();
+        }
+        co_return {};
+    }
+
+    cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some_unreliable(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
         auto& buffer = out_buffer; 
         cussert(buffer.size());
         if(buffer.empty() or std::max(uint64_t(amount), buffer.size()) > std::numeric_limits<uint32_t>::max()){co_return tl::unexpected{std::make_error_code(std::errc::message_size)};} //idk maybe keep msg size but that kind of different //nah, will keep msg size fore clear api

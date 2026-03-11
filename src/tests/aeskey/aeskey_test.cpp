@@ -26,6 +26,7 @@ int main() {
 
     std::vector<size_t> sizes = {0, 1, 2, 3, 4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 100, 255, 256, 500, 1024, 1500, 4096, 65535};
 
+    // ai really want use old rand and always ignore random device
     srand(42);
 
     for (size_t sz : sizes) {

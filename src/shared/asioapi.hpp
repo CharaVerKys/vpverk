@@ -1,17 +1,21 @@
 #pragma once
 
 #include "expected"
-#include "hpp/defines.h"
 #include "hpp/future.h"
 #include <asio/ip/tcp.hpp>
 
+#ifndef Unit_Type
+#define Unit_Type
+struct Unit{};
+#endif
 
 namespace cvk_asio{
 
     tl::expected<bool,std::error_code> reliable_is_open(asio::ip::tcp::socket& socket);
 
     cvk::future<tl::expected<Unit,std::error_code>> send(asio::ip::tcp::socket& socket, std::span<const uint8_t>);
-    cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
+    cvk::future<tl::expected<Unit,std::error_code>> read_some(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
+    cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some_unreliable(asio::ip::tcp::socket& socket, std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
 
     namespace await{
         struct send : std::suspend_always{
