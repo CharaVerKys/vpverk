@@ -15,7 +15,7 @@
 #include <cvkrsa.hpp>
 #include <fstream>
 
-//expected to many repeats
+//there to many repeats
 #define THROW_EC(ec) if(ec){throw std::runtime_error(ec.message());}
 #define THROW_EXP_EC(exp) if(not exp){throw std::runtime_error(exp.error().message());}
 
@@ -247,5 +247,53 @@ void setupTun(asio::ip::address_v4 const& vpn_client_ip){
 }
 
 
-cvk::coroutine_t startTunRead(std::shared_ptr<asio::ip::tcp::socket> , std::shared_ptr<aig::AesSession>, std::stop_token);
-cvk::coroutine_t startSocketRead(std::shared_ptr<asio::ip::tcp::socket> , std::shared_ptr<aig::AesSession>, std::stop_token);
+cvk::coroutine_t startTunRead(std::shared_ptr<asio::ip::tcp::socket> socket, std::shared_ptr<aig::AesSession> aes, std::stop_token stop){
+    constexpr uint16_t max_possible_ip_packet_size = 1500;
+    std::array<uint8_t,max_possible_ip_packet_size+4> buffer_raw;
+    std::array<uint8_t,max_possible_ip_packet_size+4> buffer_crypt;
+
+    try{
+    while(not stop.stop_requested()){
+        uint32_t read_size = co_await Tun::instance().read(
+                std::span<uint8_t>{buffer_raw.data()+4, max_possible_ip_packet_size}, 
+                std::chrono::milliseconds{100});
+        if(read_size == 0){continue;}
+        std::memcpy(buffer_raw.data(), &read_size, 4);
+        auto ec = aes->encrypt(std::span<const uint8_t> {buffer_raw.data(),read_size+4}, buffer_crypt);
+        THROW_EC(ec)
+        auto res = co_await cvk_asio::send(*socket, std::span<const uint8_t>{buffer_crypt.data(),read_size+4})   ;
+        if(not res and res.error() == std::errc::operation_canceled){continue;}
+        THROW_EXP_EC(res)
+        // it is literally all????
+    }
+    }catch(std::exception const& e){
+        std::cerr << __func__ << '\n';
+        cuabort(e.what());
+    }
+    write_clnt() << "exiting...";
+}
+cvk::coroutine_t startSocketRead(std::shared_ptr<asio::ip::tcp::socket> socket, std::shared_ptr<aig::AesSession> aes, std::stop_token stop){
+    // will implement this first cuz it seems easier
+    constexpr uint16_t max_possible_ip_packet_size = 1500;
+    std::array<uint8_t,max_possible_ip_packet_size> buffer_crypt;
+    std::array<uint8_t,max_possible_ip_packet_size> buffer_raw;
+
+    try{
+    while(not stop.stop_requested()){
+        uint32_t read_size = co_await read_block_size(*socket, *aes);
+        //if(read_size > max_possible_ip_packet_size){cuabort("read_size > max_possible_ip_packet_size");}
+        cussert(read_size > max_possible_ip_packet_size);
+        auto res = co_await cvk_asio::read_some(*socket, buffer_crypt, read_size);
+        if(not res and res.error() == std::errc::operation_canceled){continue;}
+        THROW_EXP_EC(res)
+        auto ec = aes->decrypt(std::span<const uint8_t> {buffer_crypt.data(),read_size}, buffer_raw);
+        THROW_EC(ec)
+        co_await Tun::instance().write(std::span<const uint8_t>{buffer_raw.data(),read_size});
+        //wait, is it all???? is it really everything i need?????
+    }
+    }catch(std::exception const& e){
+        std::cerr << __func__ << '\n';
+        cuabort(e.what());
+    }
+    write_clnt() << "exiting...";
+}
