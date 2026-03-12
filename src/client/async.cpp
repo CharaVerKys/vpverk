@@ -20,7 +20,7 @@
 #define THROW_EXP_EC(exp) if(not exp){throw std::runtime_error(exp.error().message());}
 
 
-cvk::future<Unit> asyncStart(asio::io_context* ctx, cvk::args const& args){
+cvk::future<Unit> startAsync(asio::io_context* ctx, cvk::args const& args){
     asio::ip::tcp::socket socket(*ctx);
     asio::ip::tcp::endpoint endpoint(
         asio::ip::make_address_v4(args.server_ip),
