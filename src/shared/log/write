@@ -17,6 +17,8 @@ class write{
     const log::to& target;
     inline static uint totalOrder = 0;
     log::lvl lvl = log::lvl::norm;
+    write(write&&) = delete; // nah i made broken shit, prevent other errors at this lvl
+    write(write const&) = delete;
 public:
     explicit write(const log::to& target,
         const std::source_location loc = std::source_location::current()
