@@ -1,5 +1,6 @@
 #include "other_coroutinethings.hpp"
 #include <asio/io_context.hpp>
+#include <asio/ip/address_v4.hpp>
 #include <asioapi.hpp>
 #include <coroutinesthings.hpp>
 #include <misc/lyra.hpp>
@@ -8,6 +9,23 @@
 #include <log/write>
 #include <defines.h>
 #include <async.hpp>
+#include <fstream>
+
+void restore_network(){
+    std::ifstream ip_file(cvk::get_current_exec_path().parent_path() / "tun_ip.raw",
+            std::ios::binary);
+    if(not ip_file.is_open()){
+        cuabort("failed to open tun_ip.raw");
+    }
+    uint32_t ip_bytes_raw;
+    ip_file >> ip_bytes_raw;
+    ip_file.close();
+    asio::ip::address_v4 vpn_client_ip = asio::ip::make_address_v4(ip_bytes_raw);
+    system_("ip link set tun0 down");
+    system_("ip addr del " + vpn_client_ip.to_string() + "/16 dev tun0");
+    system_("ip route del 0.0.0.0/1 via " + vpn_client_ip.to_string() + " dev tun0");
+    system_("ip route del 128.0.0.0/1 via " + vpn_client_ip.to_string() + " dev tun0");
+}
 
 int main(int argc, const char** argv){
 
@@ -36,6 +54,8 @@ int main(int argc, const char** argv){
 
     cvk::args args;
 
+    bool restore = false;
+    
     std::string logdir = "none";
     auto cli = lyra::cli()
         | lyra::opt(logdir, "logdir")
@@ -49,10 +69,18 @@ int main(int argc, const char** argv){
         ("your login")
         | lyra::opt(args.key_path, "key_path")["--key_path"]
         ("public.pam key path (defaul - next to exe)")
+        | lyra::opt(restore)["--restore"]
+        ("restore network based on tun_ip.raw and exit")
     ;
     auto result = cli.parse({argc,argv});
     if(result.has_value()){
         // i guess ok?     
+
+        if(restore){
+            restore_network();
+            std::exit(0);
+        }
+
         if(args.port == 0){
             std::cerr << "provide '--port=<int>;\n"; 
             return 1;
@@ -71,6 +99,7 @@ int main(int argc, const char** argv){
         return 1;
     }
 
+
     if(logdir == "none"){
         logdir = cvk::get_current_exec_path().parent_path();
     }
@@ -83,6 +112,11 @@ int main(int argc, const char** argv){
     Logger::instance()->setLogDir(logdir);
     Logger::instance()->init();
     cvk::write(clt::client) << cll::good << "log start";
+
+    // no work guard needed since there always at least one coroutine running
+    // and when it is not running, there always at least one waiting
+    // when receive ctrl-c will handle interrupt with asio, and explicitly stop both coroutines (cancel on both)
+    // and than naturally exit everywhere -> exit from run
     
     //async in async.cpp
     asio::io_context ctx;
@@ -98,6 +132,6 @@ int main(int argc, const char** argv){
             /*idk*/
         },ctx);
     ctx.run();
-    
+    restore_network();    
     write_(clt::client) << "main wait on join";
 }

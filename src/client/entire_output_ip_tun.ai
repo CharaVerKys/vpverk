@@ -1,0 +1,159 @@
+i decided i not want to handle server ip route exception
+nah, i just not wanna, i have to read a lot than
+just routes and tun setup
+--------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------
+
+
+
+i want to setup tun, plan to use std::system for that, only linux now
+
+ip route add <server_public_ip>/32 via <normal_gateway> dev <real_interface>
+ip addr add <vpn_client_ip>/16 dev tun0
+ip route add 0.0.0.0/1 via <vpn_client_ip> dev tun0
+ip route add 128.0.0.0/1 via <vpn_client_ip> dev tun0
+
+how do i obtain normal gateway and real interface names? should i insert them manually as params?
+is it just enough to setup tun with
+
+C++
+
+Tun::Tun()
+// int
+:file_descriptor{[]()->int{
+    int fd = open("/dev/net/tun", O_RDWR);
+    if (fd < 0){cuabort("failed to open tun file descriptor");}
+    cussert(t_ctx.has_value());
+    return fd;
+}()}
+,strand{asio::make_strand(**t_ctx)}
+//posix stream
+,tun{[](int fd, auto& strand)->asio::posix::stream_descriptor{
+    struct ifreq ifr{};
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI; // no packet info header, raw IP
+    const char* name = "tun0";
+    std::strncpy(ifr.ifr_name, name, IFNAMSIZ);
+
+    if (ioctl(fd, TUNSETIFF, &ifr) < 0) {
+        close(fd);
+        cuabort("failed to set tun descriptor flags");
+    }
+
+    // make non-blocking for asio
+    fcntl(fd, F_SETFL, O_NONBLOCK); //? cant fail?
+    cussert(cvk::ContStore::instance()->get_io_context(MainCtx) == *t_ctx); //if i not stupid it should be same **pointers**
+    return {strand, fd};
+}(file_descriptor, strand)}
+
+and than call commands from above?
+
+--------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------
+
+Obtaining Default Gateway & Interface
+
+Parse /proc/net/route — no subprocess needed:
+
+C++
+
+#include <fstream>
+#include <sstream>
+#include <optional>
+#include <arpa/inet.h>
+
+struct DefaultRoute {
+    std::string iface;    // "eth0", "wlp2s0", etc.
+    std::string gateway;  // "192.168.1.1"
+};
+
+std::optional<DefaultRoute> get_default_route() {
+    std::ifstream f("/proc/net/route");
+    if (!f) return std::nullopt;
+
+    std::string line;
+    std::getline(f, line); // skip header
+
+    while (std::getline(f, line)) {
+        std::istringstream iss(line);
+        std::string iface, dest_hex, gw_hex;
+        iss >> iface >> dest_hex >> gw_hex;
+
+        if (dest_hex == "00000000") {            // default route
+            uint32_t gw = std::stoul(gw_hex, nullptr, 16);
+            struct in_addr addr;
+            addr.s_addr = gw;                    // already correct byte order
+            return DefaultRoute{ iface, inet_ntoa(addr) };
+        }
+    }
+    return std::nullopt;
+}
+
+The hex values in /proc/net/route are the raw __be32 from the kernel — same representation as s_addr, so no ntohl needed.
+Your TUN Creation Code
+
+It's correct, but you're missing bringing the interface up. Without that none of the routes will work. Also check fcntl return:
+
+C++
+
+if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
+    close(fd);
+    cuabort("failed to set non-blocking");
+}
+
+Full Route Setup
+
+C++
+
+void setup_routes(const std::string& server_ip, const std::string& vpn_client_ip) {
+    auto route = get_default_route();
+    if (!route) cuabort("no default route found");
+
+    auto cmd = [](const std::string& c) {
+        if (std::system(c.c_str()) != 0)
+            cuabort("command failed: " + c);
+    };
+
+    // 1. bring tun up (REQUIRED — you're missing this)
+    cmd("ip link set tun0 up");
+
+    // 2. assign address
+    cmd("ip addr add " + vpn_client_ip + "/16 dev tun0");
+
+    // 3. pin real server via original gateway so it doesn't go into the tunnel
+    cmd("ip route add " + server_ip + "/32 via " + route->gateway + " dev " + route->iface);
+
+    // 4. hijack all traffic into tunnel (two halves avoid replacing the default route)
+    cmd("ip route add 0.0.0.0/1 via " + vpn_client_ip + " dev tun0");
+    cmd("ip route add 128.0.0.0/1 via " + vpn_client_ip + " dev tun0");
+}
+
+And teardown (important — otherwise you brick networking on exit/crash):
+
+C++
+
+void teardown_routes(const std::string& server_ip, const std::string& vpn_client_ip) {
+    // reverse order; ignore errors on cleanup
+    std::system("ip route del 128.0.0.0/1 via ...");
+    std::system("ip route del 0.0.0.0/1 via ...");
+    std::system(("ip route del " + server_ip + "/32").c_str());
+    std::system("ip link set tun0 down");
+}
+
+Register it with a signal handler or atexit, or you'll lose connectivity if the process dies.
+Order of Operations
+
+text
+
+open(/dev/net/tun)
+  → ioctl TUNSETIFF
+  → fcntl O_NONBLOCK
+  → wrap in asio stream_descriptor
+  → ip link set tun0 up          ← you were missing this
+  → ip addr add ...
+  → ip route add server pinning
+  → ip route add 0/1
+  → ip route add 128/1
+  → start reading/writing on the fd
+
+The TUN fd won't produce or accept packets until the interface is up and has an address.

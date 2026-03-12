@@ -2,6 +2,7 @@
 #include "coroutinesthings.hpp"
 #include "defines.h"
 #include "other_coroutinethings.hpp"
+#include "some_other_help_funcs.hpp"
 #include <asio/io_context.hpp>
 #include <asio/ip/address_v4.hpp>
 #include <asio/ip/address_v6.hpp>
@@ -12,10 +13,12 @@
 #include <system_error>
 #include <cvkaes.hpp>
 #include <cvkrsa.hpp>
+#include <fstream>
 
 //expected to many repeats
 #define THROW_EC(ec) if(ec){throw std::runtime_error(ec.message());}
 #define THROW_EXP_EC(exp) if(not exp){throw std::runtime_error(exp.error().message());}
+
 
 cvk::future<Unit> asyncStart(asio::io_context* ctx, cvk::args const& args){
     asio::ip::tcp::socket socket(*ctx);
@@ -125,7 +128,39 @@ cvk::future<Unit> asyncStart(asio::io_context* ctx, cvk::args const& args){
             );
     THROW_EC(ec);
     
+    std::ofstream ip_file(cvk::get_current_exec_path().parent_path() / "tun_ip.raw",
+            std::ios::binary | std::ios::out); // no append, recreate
+    ip_file << ip_bytes_raw;
+    ip_file.close();
+
     setupTun(asio::ip::make_address_v4(ip_bytes_raw)); //sync
+
+    std::shared_ptr<asio::ip::tcp::socket> s_socket = std::make_shared<asio::ip::tcp::socket>(std::move(socket));
+    std::shared_ptr<aig::AesSession> s_aes = std::make_shared<aig::AesSession>(std::move(aes));
+    std::stop_source stop_source_;
+    startTunRead(s_socket, s_aes, stop_source_.get_token());
+    startSocketRead(s_socket, s_aes, stop_source_.get_token());
+    //btw, will write down here
+    //tun support async read and write, both require lock, when write invokes,
+    // it preempt, not locks, so it is safe for single thread // it also used on server without threading anyway
+
+    //only valid exit path is ctrl-c
+    //may change later, but than think about canceling this signal handle
+
+                    // is source behave like ptr? idk...
+    auto signals_handle = [stop_source_ = std::move(stop_source_), s_socket]
+        (std::error_code const& ec, [[maybe_unused]] int signal){
+            //not even cancel, if any ec
+            std::cout << "try to exit..." <<std::endl;
+        if(ec){cuabort(("signal handler: " + ec.message()).c_str());}
+        stop_source_.request_stop();
+        s_socket->cancel();
+        //Tun::instance().cancel(); //if it write that stuck, well im fucked \ on read it just timer timeout
+    };
+
+    asio::signal_set signals(**t_ctx, SIGINT, SIGTERM); //not remember what is sigterm / sigint = ctrl-c
+    signals.async_wait(signals_handle);
+
 
     co_return {};
 }
@@ -187,7 +222,30 @@ cvk::future<uint32_t> read_block_size(asio::ip::tcp::socket& socket, aig::AesSes
     co_return size;
 }
 
-void setupTun(asio::ip::address_v4 const&){
+void system_(const std::string& c) {
+    if (std::system(c.c_str()) != 0)
+        cuabort(("command failed: " + c).c_str());
+};
 
+void setupTun(asio::ip::address_v4 const& vpn_client_ip){
+    //call constructor (side effect basically)
+    (void)Tun::instance();
+
+    // 1. bring tun up (REQUIRED — you're missing this)
+    system_("ip link set tun0 up");
+
+    // 2. assign address
+    system_("ip addr add " + vpn_client_ip.to_string() + "/16 dev tun0");
+
+    // 3. pin real server via original gateway so it doesn't go into the tunnel
+    std::cout << "automatic route to server setup is not implemented\n"
+        << "you should call something like 'ip route add <server_ip>/32 via <gateway> dev <inf>'\n";
+
+    // 4. redirect all traffic into tunnel (two halves avoid replacing the default route)
+    system_("ip route add 0.0.0.0/1 via " + vpn_client_ip.to_string() + " dev tun0");
+    system_("ip route add 128.0.0.0/1 via " + vpn_client_ip.to_string() + " dev tun0");
 }
 
+
+cvk::coroutine_t startTunRead(std::shared_ptr<asio::ip::tcp::socket> , std::shared_ptr<aig::AesSession>, std::stop_token);
+cvk::coroutine_t startSocketRead(std::shared_ptr<asio::ip::tcp::socket> , std::shared_ptr<aig::AesSession>, std::stop_token);
