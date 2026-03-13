@@ -21,7 +21,6 @@
 
 class Connection{
   public:
-    static constexpr uint8_t next_block_size = 4; // max block size is 32, 16 would be enough actually
     using block_size_t = uint32_t;
     static std::span<uint8_t> block_get_buffer(block_size_t& read_){return std::span<uint8_t>((uint8_t*)&read_,sizeof(read_));}
   public:
