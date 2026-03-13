@@ -19,9 +19,27 @@
 
 // actual work will be performed (write) on tun router, and (read) on just per-connection coroutine
 
+
+
+
+
+// guys this shit is so fucked up
+// i just thought
+// maybe asio socket are also unsafe to call async_* ?
+// and seems like it is
+// seems like any op is thread unsafe
+// idk, it like actually obvious now
+// adding call_lock for all socket ops
+
+// also looking at tun just to make sure it is safe to call already <- (yes, it is safe)
+
+// i need to create special thread safe socket class somewhere
+
+
 class Connection{
   public:
     using block_size_t = uint32_t;
+        //i forgot that i made this
     static std::span<uint8_t> block_get_buffer(block_size_t& read_){return std::span<uint8_t>((uint8_t*)&read_,sizeof(read_));}
   public:
     struct Socket_lock{
@@ -32,10 +50,10 @@ class Connection{
       std::atomic_bool& l;
     };
     struct read_wait_awaiter : std::suspend_always{
-        read_wait_awaiter(asio::ip::tcp::socket& s):s_{s}{}
+        read_wait_awaiter(asio::ip::tcp::socket& s, std::recursive_mutex& call_lock):s_{s},l{call_lock}{}
         void await_suspend(std::coroutine_handle<> h)noexcept;
         std::error_code await_resume()noexcept{return ec;}
-      private: asio::ip::tcp::socket& s_; std::error_code ec;
+        private: asio::ip::tcp::socket& s_; std::error_code ec; std::recursive_mutex& l;
     };
   public:
     Connection(asio::strand<asio::io_context::executor_type> strand, asio::ip::tcp::socket sock)
@@ -73,7 +91,7 @@ class Connection{
         //inner api names reverted, changed at last moment
     [[nodiscard]] cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> read_some(std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
     [[nodiscard]] cvk::future<tl::expected<Unit,std::error_code>> read_some_reliable(std::span<uint8_t> out_buffer, uint32_t amount = 0 /*0 == max possible */);
-    [[nodiscard]] read_wait_awaiter wait_read(){return {sock_};}
+    [[nodiscard]] read_wait_awaiter wait_read(){return {sock_,call_lock};}
     [[nodiscard]] size_t available(){return sock_.available();}
 
     //cvk::future<tl::expected<std::vector<uint8_t>,std::error_code>> read_some_nb/*no buffer*/(uint32_t amount = 0 /*0 == max possible */);
@@ -84,6 +102,7 @@ class Connection{
     // when lock hold, no coroutine can perform :
     // switching to another thread, 
     // call async operations for this connection (socket read/write correspondingly)
+    std::/*just in fking case*/recursive_mutex call_lock; // needed for socket-object calls
     std::atomic_bool write_lock_ = false;
     std::atomic_bool read_lock_ = false;
     // anyway, just basically anything that may be considered unsafe to do from different coroutines == potentially threads

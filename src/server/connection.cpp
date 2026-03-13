@@ -4,11 +4,39 @@
 #include <atomic>
 #include <limits>
 
+/*
+#define CALL_LOCK(return_value, ...)\
+    call_lock.lock(); \
+    decltype(return_type) return_value; \
+    try{ \
+        return_value = std::move(__VA_ARGS__) \
+    }catch(...){ \
+        call_lock.unlock(); \
+        throw; \
+    } \
+    call_lock.unlock();
+*/
+
+//need only move constructor, no reference support, any other type should be fine
+#define CALL_LOCK(return_value, ...)\
+    std::optional<decltype(__VA_ARGS__)> call_lock_##return_value; \
+    call_lock.lock(); \
+    try{ \
+        call_lock_##return_value.emplace(__VA_ARGS__); \
+    }catch(...){ \
+        call_lock.unlock(); \
+        throw; \
+    } \
+    call_lock.unlock(); \
+    decltype(__VA_ARGS__) return_value{std::move(*call_lock_##return_value)};
+
 void Connection::read_wait_awaiter::await_suspend(std::coroutine_handle<> h)noexcept{
+    l.lock();
     s_.async_wait(asio::ip::tcp::socket::wait_read,[h, this](std::error_code const&e){
         RESCHEDULE_HERE(h);
         ec = e;
     });
+    l.unlock();
 }
 
 std::optional<std::unique_ptr<Connection::Socket_lock>> Connection::read_lock(){
@@ -45,7 +73,8 @@ std::optional<bool> Connection::is_active(){
     bool exchanged = read_lock_.exchange(true,std::memory_order_acquire);
     if(exchanged == true){return std::nullopt;}
 
-    auto exp = cvk_asio::reliable_is_open(sock_); //perform sync read (short 1 byte peek) operation
+    //god damn that awful
+    CALL_LOCK(exp, cvk_asio::reliable_is_open(sock_)) //perform sync read (short 1 byte peek) operation
 
     read_lock_.store(false, std::memory_order_release);
 
@@ -53,7 +82,7 @@ std::optional<bool> Connection::is_active(){
     throw std::runtime_error(std::string("reliable is open unexpected error code: ") + exp.error().message());
 }
 bool Connection::is_active_nolock(){
-    auto exp = cvk_asio::reliable_is_open(sock_); //perform sync read (short 1 byte peek) operation
+    CALL_LOCK(exp, cvk_asio::reliable_is_open(sock_)) //perform sync read (short 1 byte peek) operation
     if(exp){return *exp;}
     throw std::runtime_error(std::string("reliable is open unexpected error code: ") + exp.error().message());
 }
@@ -73,7 +102,7 @@ cvk::future<Unit> Connection::close(std::string_view reason){
         }
     }
     auto lifetime = Socket_lock{write_lock_};
-    auto expe_ = cvk_asio::reliable_is_open(sock_);
+    CALL_LOCK(expe_, cvk_asio::reliable_is_open(sock_)) //perform sync read (short 1 byte peek) operation
     if(not expe_ or not *expe_){
         co_return {};
     }
@@ -90,6 +119,8 @@ cvk::future<Unit> Connection::close(std::string_view reason){
         //idk just skip
     }
     //both may throw
+    call_lock.lock();
+    try{
     sock_.shutdown(asio::ip::tcp::socket::shutdown_both);//send fin
     //todo (unreliable source)
     //ai says, that i cant close when there anything on read buffer
@@ -107,26 +138,32 @@ cvk::future<Unit> Connection::close(std::string_view reason){
     //after drain, close send fin (or just do nothing?) and not rst
     // (also info from ai)
     sock_.close();
+    }catch(...){
+        call_lock.unlock();
+        throw;
+    }
+    call_lock.unlock();
     co_return{};
 }
 std::optional<asio::ip::address_v4> Connection::ip()
 {
     std::error_code ec;
-    auto res = sock_.remote_endpoint(ec).address().to_v4();
+    CALL_LOCK(res , sock_.remote_endpoint(ec).address().to_v4()) //perform sync read (short 1 byte peek) operation
     if(ec){
         return std::nullopt;
     }
     return res;
 }
 cvk::future<tl::expected<Unit,std::error_code>> Connection::send(std::span<const uint8_t> buff){
-    co_return co_await cvk_asio::send(sock_, buff);
+    // asbcashdbashfbajhb i need to pass call_lock mutex here, in all of 3 funcs
+    co_return co_await cvk_asio::send(sock_, buff, &call_lock);
 }
 cvk::future<tl::expected<uint32_t/*amount*/,std::error_code>> Connection::read_some(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
     //co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
-    co_return co_await cvk_asio::read_some_unreliable(sock_, out_buffer, amount);
+    co_return co_await cvk_asio::read_some_unreliable(sock_, out_buffer, amount, &call_lock);
 }
 cvk::future<tl::expected<Unit,std::error_code>> Connection::read_some_reliable(std::span<uint8_t> out_buffer, uint32_t amount/*0 == max possible */){
-    co_return co_await cvk_asio::read_some(sock_, out_buffer, amount);
+    co_return co_await cvk_asio::read_some(sock_, out_buffer, amount, &call_lock);
 }
 
 
