@@ -20,6 +20,7 @@ public:
 private:
     // for multiple session add here thread pool, and just share io context and stop token
     void asyncStart(std::stop_token);
+    void setupTun();
 
     // promise<bool> (void) // just invoked promise on this thread
     void move_to_main_context(std::any promise_bool_void);
@@ -55,6 +56,7 @@ private:
     > tunRouter; //no fill and clean process yet
     routes_queue tunQueue{routes_q::CAPACITY}; //manual memory management
 
+    //hard coded same value in setupTun
     static constexpr uint32_t address_begin = (10u << 24) | (123u << 16); // use 10.123.0.0/16 subnet
     //std::atomic_uint16_t counter = 1; // let subset be 10.xxx.0.0/16, than it is 'almost' safe \ need to sub broadcast and network addresses (if i remember how subnets work right)
                           // todo - add this xxx as setting, and unconstexpr address_begin

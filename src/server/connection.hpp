@@ -59,8 +59,9 @@ class Connection{
     [[nodiscard]] std::optional<bool> is_active();
     [[nodiscard]] cvk::future<Unit> close(std::string_view /*reason*/);
 
-    //thread unsafe, but ip ret
+    //thread unsafe
     [[nodiscard]] bool is_active_nolock();
+    std::optional<asio::ip::address_v4> ip();
 
     //since i added strand they are thread safe but will cause garbage data because of asio sockets unreliable send/read _some
     //so have to lock anyway

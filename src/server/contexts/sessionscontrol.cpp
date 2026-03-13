@@ -16,6 +16,7 @@
 #include <other_coroutinethings.hpp>
 #include <queue>
 
+#define breakpoint __builtin_trap
 
 cvk::expected_contextsReg SessionsControl::onAsyncStart(std::vector<std::function<void(std::stop_token)>>&& previousFuncs){
     regMethod(this,&SessionsControl::move_to_main_context);
@@ -60,6 +61,8 @@ cvk::future<Unit> SessionsControl::routeTunToClients(bool use_loop){
 
             emptyQueue();
             if(by_timeout){continue;}
+
+            std::cerr << got_packet_size << " <-packet size\n";
             
             // ai offered better interface (better than manual swap bytes for order)
             asio::ip::address_v4::bytes_type dst_bytes;
@@ -69,6 +72,14 @@ cvk::future<Unit> SessionsControl::routeTunToClients(bool use_loop){
             auto dst = asio::ip::address_v4(dst_bytes); // bytes_type constructor = network order
 
 
+            uint8_t ip_version = ((buffer[sizeof(Connection::block_size_t)] & 0xf0) >> 4); //get bytes for ip version
+                                    // read first byte, keep only 11110000, shift to correct pos for reading
+            if(ip_version not_eq 4){
+                //write_serv() << "got ipv" << (int)ip_version <<" with packet size: " << got_packet_size;
+                continue;
+            }
+
+            std::cerr << "ip "<< dst.to_string() <<std::endl;
             uint32_t a;
             std::memcpy(&a
                     , buffer.data() +16 +sizeof(Connection::block_size_t)
@@ -78,6 +89,10 @@ cvk::future<Unit> SessionsControl::routeTunToClients(bool use_loop){
             unsigned char second;
             std::memcpy(&first ,(reinterpret_cast<unsigned char*>(&a)+0),1);
             std::memcpy(&second,(reinterpret_cast<unsigned char*>(&a)+1),1);
+            std::cerr << (int)first << " " << (int) second<<std::endl;
+            std::memcpy(&first ,(reinterpret_cast<unsigned char*>(&a)+2),1);
+            std::memcpy(&second,(reinterpret_cast<unsigned char*>(&a)+3),1);
+            std::cerr << (int)first << " " << (int) second<<std::endl;
             const char* res = "not like this2";
             if(first == 10 and second == 123){res = "like this2";}
             cuabort(res);
@@ -187,6 +202,7 @@ void SessionsControl::emptyQueue(){
             if(it == tunRouter.end()){
                 //wasnt registered yet, requeue
                 local_handle.push(ptr); //!! give
+
                 continue;
             }
             
@@ -251,7 +267,7 @@ asio::ip::address_v4 SessionsControl::getNewAddress(){
     do{
         ++unique_address_counter;
         if(unique_address_counter == std::numeric_limits<uint16_t>::max()){
-            unique_address_counter=1;
+            unique_address_counter=2; // 0, 1(tun ip), max() are taken by network itself
         }
         uint32_t a = address_begin | uint32_t(unique_address_counter);
     
@@ -270,16 +286,28 @@ asio::ip::address_v4 SessionsControl::getNewAddress(){
 }
 
 cvk::coroutine_t SessionsControl::acceptConnection(){
+    // by default assumed, there not yet t_ctx set
+
+    // there can be in main thread
+
     try {
         if(not acceptor_){
             // here because i want settings context to be valid and running
-
+            
+            // there can be in main thread
+breakpoint();
+            // can be called from main thread or main context thread pool, 
+            // perform in settings thread
+            // and return always to main context
             const SettingsSnapshot settings = co_await cvk::method::Invoke<SettingsSnapshot>{
                 // ? from context to context
                 // ? first is where coroutine will resume, second where func will calls
                 MainCtx, SettingsCtx,
                 method::get_settings
             };
+
+breakpoint();
+            // there is not main thread (but in main context)
 
             acceptor_ = std::make_unique<asio::ip::tcp::acceptor>(
                 loop_, asio::ip::tcp::endpoint(asio::ip::tcp::v4(), settings.getPort()));
@@ -288,7 +316,7 @@ cvk::coroutine_t SessionsControl::acceptConnection(){
         while(not stop_token.stop_requested()){
             // not want to create awaiter for this
             auto handle = co_await cvk::co_getHandle{};
-            //asio::ip::tcp::socket socket{t_ctx};
+            //asio::ip::tcp::socket socket{t_ctx this thread loop or something..};
             // using api, i made it so why not
             std::error_code ec;
             asio::strand<asio::io_context::executor_type> strand  
@@ -303,8 +331,10 @@ cvk::coroutine_t SessionsControl::acceptConnection(){
                     RESCHEDULE_HERE(handle); //reschedule on same thread macros
                     }
                   );
+breakpoint();
             co_await std::suspend_always{};
 
+breakpoint();
             if(ec == std::errc::operation_canceled and stop_token.stop_requested()){
                 write_serv() << "stop accepting via cancel on acceptor";
                 co_return;
@@ -384,6 +414,7 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
 {
     std::optional<asio::ip::address_v4> assigned_address;
     try{
+breakpoint();
         cussert(connection and connection->is_active());
         // no pending bounds cuz it is literally first operation, with reasonable session max life time impossible to trigger close here
         const SettingsSnapshot settings = co_await cvk::method::Invoke<SettingsSnapshot>{
@@ -392,20 +423,26 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
             MainCtx, SettingsCtx,
             method::get_settings
         };
+breakpoint();
         aig::AesSession aeskey = co_await exchangeAESkey(*connection, settings);
         bool allowed = co_await authenticateUser(*connection, aeskey, settings);
         if(not allowed){
+breakpoint();
             co_await connection->close("Access denied");
+breakpoint();
             co_return;
         }
 
         // i not sure, but seems that i may access aes session when this coroutine is destroyed
         // so just in case make it ptr lifetime
         std::shared_ptr<aig::AesSession> aes_ = std::make_shared<aig::AesSession>(std::move(aeskey));
+breakpoint();
         // accessing aeskey no longer allowed, it was moved
 
         assigned_address = getNewAddress();
+breakpoint();
         co_await sendIp(*connection, *aes_, assigned_address.value().to_uint());
+breakpoint();
 
 
         //
@@ -428,9 +465,11 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
             constexpr const char* msg = "failed to add pointer to atomic queue";
             write_serv() << cll::critical << msg;
 
+breakpoint();
             delete route;
 
             co_await connection->close("server error: queue full");
+breakpoint();
             throw /*duplicate*/ std::runtime_error(msg);
         }
         cussert_d((void*)route == ptr_addr);
@@ -438,8 +477,10 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
         // bellow this point no return statements allowed
         //
 
+breakpoint();
         bool normal_disconnect = co_await performDataExchange(*connection, *aes_);
 
+breakpoint();
 
 
         if(not normal_disconnect){
@@ -449,20 +490,25 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
             //
         }
     }catch(std::exception const& e){
+breakpoint();
         // maybe make special exception for closed case (operation aborted/canceled) idk yet
         write_serv() << cll::error << "exception in startConnection (lifecycle): " << e.what();
     }
     
     // all pathes above, after register call, should lead to unregister call
 
+breakpoint();
     if(not assigned_address){co_return;} //for unhandled exception above registration
+breakpoint();
                                         
     aq_route* route = new aq_route;
     route->add_or_remove = false;
     route->addr = assigned_address.value();
     route->con = connection; //redundant, i just want to delete from map by key
     //route->aes = aes_;
+breakpoint();
     while(not tunQueue.try_push(route)){
+breakpoint();
         co_await reschedule{}; //unlike init, there i really want to process it
                                //actually maybe init also should be reschedule
                                //but if there some sort of error id rather see log that some one cant init
@@ -471,37 +517,48 @@ cvk::coroutine_t SessionsControl::startConnection(std::shared_ptr<Connection> co
     // all pathes should lead here
     // so i do it here
     try{
+breakpoint();
         auto lock = std::lock_guard{unique_address_mutex};
         unique_address_set.erase(*assigned_address);
     }catch(std::exception const& e){
+breakpoint();
         write_serv() << cll::error << "some weird error (wa;eljnal): " << e.what() << " // " << assigned_address->to_string();
     }
+breakpoint();
 }
 cvk::future<aig::AesSession> SessionsControl::exchangeAESkey(Connection& con, SettingsSnapshot const& settings/*maybe only private key*/) // exchange via RSA
 {
     constexpr uint16_t expected_first_msg_size = 256;// rsa first packet
     Connection::block_size_t read;
     //auto buf = Connection::block_get_buffer(read);
+breakpoint();
     (co_await con.read_some_reliable(Connection::block_get_buffer(read)))
         .or_else([](std::error_code&&ec){throw std::runtime_error(
                     "error read on key exchange: " + ec.message());});
+breakpoint();
     if(expected_first_msg_size not_eq read){
+breakpoint();
         co_await con.close("Protocol violation");
+breakpoint();
         throw std::runtime_error("wrong first msg size: " + std::to_string(read));
     }
+breakpoint();
 
     std::array<uint8_t,expected_first_msg_size> aes_key_under_rsa;
     (co_await con.read_some_reliable(aes_key_under_rsa))
         .or_else([](std::error_code&&ec){throw std::runtime_error(
                     "error read on key exchange: " + ec.message());});
 
+breakpoint();
     std::array<uint8_t,32+16+16> aes_key_raw;
     
     auto res = settings.getRSAPrivateKey()->decrypt(aes_key_under_rsa,aes_key_raw);
     if(not res){
+breakpoint();
         throw std::runtime_error("fail rsa decrypt: " + res.error());
     }
     if(res.value() not_eq aes_key_raw.size()){
+breakpoint();
         throw std::runtime_error("fail rsa decrypt - expected size not match");
     }
     
@@ -527,9 +584,12 @@ cvk::future<aig::AesSession> SessionsControl::exchangeAESkey(Connection& con, Se
         //             "error creating aes session: " + ec.message());})
         // .value();
         if(not exp){
+breakpoint();
             co_await con.close("Protocol violation");
+breakpoint();
             throw std::runtime_error("error creating aes session: " + exp.error().message());
         }
+breakpoint();
     co_return std::move(exp.value());
 }
 
@@ -540,16 +600,21 @@ cvk::future<bool/*allowed*/> SessionsControl::authenticateUser(Connection& con, 
     {///
     Connection::block_size_t read_crypt;
     //auto buf = Connection::block_get_buffer(read);
+breakpoint();
     (co_await con.read_some_reliable(Connection::block_get_buffer(read_crypt)))
         .or_else([](std::error_code&&ec){throw std::runtime_error(
                     "error read on authentication: " + ec.message());});
+breakpoint();
     auto ec = aeskey.decrypt(Connection::block_get_buffer(read_crypt),Connection::block_get_buffer(read_raw));
     if(ec){
+breakpoint();
         co_await con.close("Decryption failure");
+breakpoint();
         throw std::runtime_error("first decrypt fail: " + ec.message());
     }
     }///
     if(read_raw > 200){
+breakpoint();
         throw std::runtime_error("they on trees jonny");
     }
 
@@ -558,16 +623,21 @@ cvk::future<bool/*allowed*/> SessionsControl::authenticateUser(Connection& con, 
     std::vector<uint8_t> login_crypt;
     login_crypt.resize(read_raw);
     login_raw.resize(read_raw);
+breakpoint();
     (co_await con.read_some_reliable(login_crypt))
         .or_else([](std::error_code&&ec){throw std::runtime_error(
                     "error read on authentication (2): " + ec.message());});
+breakpoint();
     auto ec = aeskey.decrypt(login_crypt,login_raw);
     if(ec){
+breakpoint();
         co_await con.close("Decryption failure");
+breakpoint();
         throw std::runtime_error("first decrypt fail (2): " + ec.message());
     }
     }///
 
+breakpoint();
     co_return std::ranges::binary_search(
             settings.getBinarySorted_allowedLogins(),
             std::string{login_raw.begin(), login_raw.end()}
@@ -591,15 +661,22 @@ cvk::future<Unit> SessionsControl::sendIp(Connection& con, aig::AesSession& aesk
     std::array<uint8_t,8> buffer_2;
     auto ec = aeskey.encrypt(buffer, buffer_2);
     if(ec){
+breakpoint();
         co_await con.close("Encryption failure");
+breakpoint();
         throw std::runtime_error("first encrypt fail: " + ec.message());
     }
     // no lock cuz still in init process
+breakpoint();
     auto expected = co_await con.send(buffer_2);
+breakpoint();
     if(not expected){
+breakpoint();
         co_await con.close("Send failure ыыыыыыыыыыыыы");
+breakpoint();
         throw std::runtime_error("first send fail: " + expected.error().message());
     }
+breakpoint();
     co_return {};
 }
 
@@ -616,49 +693,65 @@ cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExcha
         Connection::block_size_t read_raw; // needed outside lock lifetime
                                            
         //here i perform only read, send in tun routing logic
+breakpoint();
         auto ec = co_await con.wait_read();
+breakpoint();
         if(ec){
             if(ec not_eq std::errc::connection_reset){
                 write_serv() << ec.message();
             }
+breakpoint();
             co_return false;
         }
         { //// lock lifetime
+breakpoint();
             auto lock = con.read_lock();
             while(not lock){
                 co_await resched{};
+breakpoint();
                 lock = con.read_lock();
             }
             if(con.available() == 0 and con.is_active_nolock()){
+breakpoint();
                 continue; //some one used socket between wait read and read start
             }
 
             {///
             Connection::block_size_t read_crypt;
             //auto buf = Connection::block_get_buffer(read);
+breakpoint();
             (co_await con.read_some_reliable(Connection::block_get_buffer(read_crypt)))
                 .or_else([](std::error_code&&ec){throw std::runtime_error(
                             "error read on data exchange: " + ec.message());});
+breakpoint();
             auto ec = aeskey.decrypt(Connection::block_get_buffer(read_crypt),Connection::block_get_buffer(read_raw));
             if(ec){
+breakpoint();
                 co_await con.close("Decryption failure");
+breakpoint();
                 throw std::runtime_error("first decrypt fail: " + ec.message());
             }
+breakpoint();
             }///
             if(read_raw > max_bounds_size){
+breakpoint();
                 throw std::runtime_error("they on trees jonny");
             }
 
             {///
+breakpoint();
             (co_await con.read_some_reliable(buffer_crypt,read_raw))
                 .or_else([](std::error_code&&ec){throw std::runtime_error(
                             "error read on data exchange (2): " + ec.message());});
+breakpoint();
             auto ec = aeskey.decrypt(
                     std::span{buffer_crypt.data(), read_raw},
                     std::span{buffer_raw.data(), read_raw}
                 );
             if(ec){
+breakpoint();
                 co_await con.close("Decryption failure");
+breakpoint();
                 throw std::runtime_error("first decrypt fail (2): " + ec.message());
             }
             }///
@@ -673,10 +766,12 @@ cvk::future<bool/*normal disconnect == true*/> SessionsControl::performDataExcha
         // uint8_t* ip = buffer_raw.data()+12;// hardcoded: souce address in packet
         // std::memcpy(ip,vpn_ip.to_bytes().data(),4);
 
+breakpoint();
 
         std::span<const uint8_t> ip_packet{buffer_raw.data(),read_raw};
 
         co_await Tun::instance().write(ip_packet);
+breakpoint();
         // on exception will propagate above (shouldnt be any exceptions btw)
 
     }//while true
@@ -686,6 +781,7 @@ void SessionsControl::asyncStart(std::stop_token token){
     stop_token = token;
 
     checkThreadIsNOT(&mainThreadID);
+    cussert(mainThreadID not_eq std::thread::id{});
     t_ctx = &this->loop_;
 
     //add thread pool here
@@ -709,6 +805,8 @@ void SessionsControl::asyncStart(std::stop_token token){
     if(not lambda_self_){lambda_self_ = cleanup_timer_call;}
     cleanup_timer_call();
 
+    setupTun();
+
     routeTunToClients(true).subscribe([](tl::expected<Unit,std::exception_ptr>&&exp){
                 if(not exp){
                     cuabort("unhandled exception in routeTunToClients (like where it even possible lol)");
@@ -716,6 +814,25 @@ void SessionsControl::asyncStart(std::stop_token token){
             },**t_ctx);
 
     write_serv() << "started sessions control";
+}
+
+void SessionsControl::setupTun(){
+    auto system_ = +[](const std::string& c) {
+        if (std::system(c.c_str()) != 0)
+            cuabort(("command failed: " + c).c_str());
+    };
+
+    (void)Tun::instance(); // require t_ctx
+
+    //crash mid-state, no handle
+    system_("ip link set tun0 up");
+
+    //hard coded in header _begin
+    system_("ip addr add 10.123.0.1/16 dev tun0");
+
+    // claude generated, idk what this nat params do, and is ip_forwarding absolutely correct here
+    system_("sysctl -w net.ipv4.ip_forward=1");
+    system_("iptables -t nat -A POSTROUTING -s 10.123.0.0/16 -o eth0 -j MASQUERADE");
 }
 
 void SessionsControl::move_to_main_context(std::any promise_bool_void){

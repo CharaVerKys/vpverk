@@ -45,9 +45,11 @@ void Settings::read(std::filesystem::path const& path){
     // private_key from file path
     std::string keyPath = js.at("private_key_path").get<std::string>();
 
-    auto key_ = aig::RsaKey::from_pem_file(path.c_str(), aig::RsaKeyType::Private);
+    write_serv() << "key path: " << keyPath.c_str();
+
+    auto key_ = aig::RsaKey::from_pem_file(keyPath.c_str(), aig::RsaKeyType::Private);
     if(not key_){
-        throw std::runtime_error("Failed to read private key: " + keyPath);
+        throw std::runtime_error("Failed to read private key: " + keyPath + " -> "+ key_.error());
     }
     current_snapshot.private_key = std::make_shared<aig::RsaKey>(std::move(*key_));
 

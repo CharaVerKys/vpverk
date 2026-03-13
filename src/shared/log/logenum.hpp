@@ -1,10 +1,10 @@
 #pragma once
 namespace cvk::log{
     enum class to{
-        server,
-        client,
+        server = 0,
+        client = 1,
         shared = CONFIG_SERVER_OR_CLIENT_LOG,
-        session
+        session = 2
     };
     enum class lvl{
         debug,
