@@ -22,6 +22,7 @@
 
 cvk::future<Unit> startAsync(asio::io_context* ctx, cvk::args const& args){
     asio::ip::tcp::socket socket(*ctx);
+    socket.non_blocking(true);
     asio::ip::tcp::endpoint endpoint(
         asio::ip::make_address_v4(args.server_ip),
         args.port
@@ -196,9 +197,14 @@ cvk::future<uint32_t> read_block_size(asio::ip::tcp::socket& socket, aig::AesSes
         std::string _error;
         _error.resize(std::strlen(_Error));
         asio::error_code ec;
-        //may block but should be fine in 99.99...% cases
-        socket.receive(asio::buffer(_error),asio::socket_base::message_peek,ec);
-        THROW_EC(ec); //so it is blocking, so may be some sort of different error, idk, should be fine
+        auto handle = co_await cvk::co_getHandle();
+        socket.async_receive(asio::buffer(_error),asio::socket_base::message_peek,[handle, &ec]
+                (std::error_code const&e, uint64_t read){
+                    ec = e;
+                    (void)read; //if not size match, and it is actually an error, than something completely broken
+                    handle.resume();
+                });
+        THROW_EC(ec);
 
         if(_error not_eq _Error){
             break; //it was just funny -1 due to encryption, it is not error msg

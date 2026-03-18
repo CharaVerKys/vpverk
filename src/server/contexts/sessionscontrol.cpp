@@ -343,6 +343,7 @@ breakpoint
                 throw std::runtime_error(std::string("asio <error_code> ")+ec.message());
             }
 
+            socket.non_blocking(true);
             std::shared_ptr<Connection> connection = std::make_shared<Connection>(std::move(strand),std::move(socket));
             connections_.push_back(connection);
             
